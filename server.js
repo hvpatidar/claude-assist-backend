@@ -8,6 +8,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
+// ─── Trust Render's proxy ─────────────────────────────────────────────────
+app.set('trust proxy', 1);
+
 // ─── Security Headers ─────────────────────────────────────────────────────
 app.use(helmet());
 
