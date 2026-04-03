@@ -41,6 +41,24 @@ app.use('/api/', rateLimit({
   message: { error: 'RATE_LIMITED' }
 }));
 
+// ─── In-memory analytics (resets on server restart — good enough for free tier) ──
+const stats = {
+  totalRequests: 0,
+  uniqueUsers: new Set(),
+  actionCounts: { summarize: 0, explain: 0, draft_reply: 0, translate: 0, reminder: 0 },
+  dailyCounts: {}   // { 'YYYY-MM-DD': count }
+};
+
+function trackRequest(installId, action) {
+  stats.totalRequests++;
+  if (installId && typeof installId === 'string' && installId.length < 64) {
+    stats.uniqueUsers.add(installId);
+  }
+  if (stats.actionCounts[action] !== undefined) stats.actionCounts[action]++;
+  const day = new Date().toISOString().slice(0, 10);
+  stats.dailyCounts[day] = (stats.dailyCounts[day] || 0) + 1;
+}
+
 // ─── Allowed values (whitelist) ───────────────────────────────────────────
 const ALLOWED_ACTIONS = ['summarize', 'explain', 'draft_reply', 'translate', 'reminder'];
 const ALLOWED_LANGUAGES = [
@@ -105,7 +123,8 @@ function validateRequest(req, res) {
 app.post('/api/action', async (req, res) => {
   if (!validateRequest(req, res)) return;
 
-  const { action, text, targetLanguage = 'Spanish' } = req.body;
+  const { action, text, targetLanguage = 'Spanish', installId } = req.body;
+  trackRequest(installId, action);
 
   if (!GROQ_API_KEY || GROQ_API_KEY === 'your_new_groq_key_here') {
     return res.status(500).json({ error: 'Server not configured' });
@@ -157,8 +176,23 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// ─── Stats Dashboard (password protected) ────────────────────────────────
+app.get('/api/stats', (req, res) => {
+  const token = req.query.token || req.headers['x-stats-token'];
+  if (!process.env.STATS_TOKEN || token !== process.env.STATS_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  res.json({
+    totalRequests: stats.totalRequests,
+    uniqueUsers: stats.uniqueUsers.size,
+    actionCounts: stats.actionCounts,
+    dailyCounts: stats.dailyCounts,
+    note: 'Counts reset on server restart (Render free tier spins down)'
+  });
+});
+
 const keyStatus = GROQ_API_KEY && GROQ_API_KEY !== 'your_new_groq_key_here' ? 'configured' : 'NOT SET';
 app.listen(PORT, () => {
-  console.log(`ClaudeAssist backend running on http://localhost:${PORT}`);
+  console.log(`Selexo backend running on http://localhost:${PORT}`);
   console.log(`GROQ_API_KEY: ${keyStatus}`);
 });
